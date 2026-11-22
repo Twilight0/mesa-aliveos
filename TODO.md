@@ -84,14 +84,25 @@ Both approaches were implemented and verified on dedicated git branches in `src-
   - Location: `src/gallium/drivers/nouveau/nvc0/`
   - Raise single-buffer allocation cap from 25% of VRAM (`768 MiB`) to ~90% (`~2.75 GiB`) so `llama.cpp` and `CLBlast` can load quantized SLM weights into contiguous buffers.
 
-## 7. Hardware Video Encoding & Vulkan (`VA-API Encode` / `nvk-fermi`)
+## 7. Hardware Video Encoding, Hybrid H.265/HEVC & Vulkan (`VA-API` / `nvk-fermi`)
 
 - [ ] **Hybrid Compute-Shader VA-API H.264 Encoder (`VAEntrypointEncSlice`)**
   - Files: `src/gallium/frontends/va/`, `src/gallium/drivers/nouveau/nvc0/`
   - Implement a 4-stage compute-backed `pipe_video_codec` (`RGB -> NV12`, parallel SM `SAD/SATD` motion estimation, integer DCT/quantization, host CAVLC/CABAC packing) for OBS Studio (`obs-vaapi`), FFmpeg (`h264_vaapi`), PipeWire, and GStreamer.
+- [ ] **Hybrid CPU + GPU Compute H.265/HEVC Decoder (`VAProfileHEVCMain` / `VAProfileHEVCMain10`)**
+  - Files: `src/gallium/frontends/va/`, Gallium NIR compute shaders (`nvc0` and architecture-independent Gallium drivers)
+  - Precedent: NVIDIA proprietary hybrid HEVC decoder on Kepler/Maxwell Gen 1 (`GM107`) and Intel Haswell/Broadwell.
+  - Architecture split:
+    - **CPU (serial)**: CABAC entropy decoding and slice/tile header syntax parsing into flat per-CTU command/residual buffers.
+    - **GPU Compute (parallel, ~70–80% of decode cost)**: Inverse quantization + IDCT/IDST (`4x4`–`32x32`), 8-tap luma / 4-tap chroma motion compensation, wavefront/row-parallel intra prediction, and in-loop deblocking filter (DBF) + Sample Adaptive Offset (SAO).
+    - **Zero-Copy Presentation**: Output directly into GPU `NV12` (8-bit) or `P010` / dithered `NV12` (10-bit `Main 10` — unlocking 10-bit HEVC on 8-bit VP4 hardware) for `mpv`, `ffmpeg`, VLC, Jellyfin, and Chromium.
+  - Expected impact: ~50–70% CPU reduction vs. pure software `libavcodec`, making 1080p60 8-bit/10-bit HEVC smooth on reclocked Fermi GPUs (and reusable on Kepler/Maxwell 1).
+- [ ] **Hybrid CPU + GPU Compute H.265/HEVC Encoder (`VAProfileHEVCMain` + `VAEntrypointEncSlice`)**
+  - Natural extension after the hybrid H.264 compute encoder (~60% of GPU compute scaffolding — pyramid downscaler, hierarchical `SAD/SATD` motion estimation, rate control, VA-API encode plumbing — transfers directly).
+  - Target a constrained real-time subset (e.g., `16x16` / `32x32` CUs, fast 1-pass CBR/CQP, simplified intra modes, GPU hierarchical ME + transform/quant/loop-filter + CPU rate control & CABAC packing) for OBS / screen recording / streaming.
 - [ ] **Kepler (`GK104+`) & Maxwell (`GM107+`) Fixed-Function `MSENC` (`0x1c8000`) VA-API Encode**
   - Files: `src/gallium/drivers/nouveau/nve4/`, `nv50/`
   - Expose hardware `NVENC`/`MSENC` H.264 encoding via Gallium VA-API.
-- [ ] **Fermi Vulkan 1.0 / 1.1 (`nvk-fermi` Bound-Descriptor Lowering) & Zink**
-  - Location: `src/nouveau/vulkan/`
-  - Prototype `hasvk`-style bound-descriptor lowering (`128 TIC` / `32 TSC` slots per stage) pairing `NVK`'s command buffer/sync runtime with `NIR -> nv50_ir` (`TargetNVC0`), enabling Zink OpenGL 4.6 on top of `nvk-fermi`.
+- [ ] **Fermi Vulkan 1.0 / 1.1 (`nvk-fermi`) & Zink** — *Tracked in sibling project `vulkan-nouveau-aliveos`*
+  - Location: `src/nouveau/vulkan/`, `src/nouveau/compiler/nak/sm20.rs`
+  - Upstream `NAK` already contains a 3,155-line `sm20.rs` backend with Fermi `TexRef::Bound(idx)` implemented in `OpTex::encode()` (currently gated at `sm >= 30`), and `NVK` already supports Kepler (`0xa097`). See `vulkan-nouveau-aliveos/TODO.md` for Milestones 1–3 (`sm < 30` hardware-scoreboarded emission, `hasvk`-style 128 `TIC` / 32 `TSC` / 8 `SU` bound-descriptor lowering, `0x90c0` compute, DXVK 1.10.3, and Zink).
