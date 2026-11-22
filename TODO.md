@@ -1,4 +1,4 @@
-# mesa-nouveau TODO
+# mesa-aliveos TODO
 
 Target hardware: NVIDIA GeForce GT 555M (`GF106M`, `NVC3`, Fermi / `nvc0`, VP4).
 
@@ -57,4 +57,50 @@ Both approaches below will be evaluated on dedicated git branches:
 
 - [ ] Test MPEG-1/2 and VC-1 hardware decoding clips through VA-API to confirm VP4 teardown and fence sync beyond H.264.
 - [ ] Check `src/gallium/frontends/va/decode.c` (`handleVASliceDataBufferType`) for packed multi-slice H.264 buffers without start codes between slices.
-- [ ] Once branches are tested and finalized, package/install the verified `mesa-nouveau` build system-wide so browsers and desktop apps use it without `LD_LIBRARY_PATH` / `--no-sandbox`.
+- [x] **Package & distribute `mesa-aliveos` 26.3.1-1** — published to GitHub (`Twilight0/mesa-aliveos`), AUR (`mesa-aliveos`), and `aliveos-repo` (`v26.3.1-1`).
+
+## 5. Compiler & Gallium `nvc0` Performance (`nv50_ir` / Z-Cull / Tile Compression)
+
+- [ ] **Dual-Issue Warp Scheduling & Superscalar Execution in `nv50_ir`**
+  - Files: `src/nouveau/codegen/nv50_ir_*.cpp` / `src/gallium/drivers/nouveau/codegen/`
+  - Fermi SM20 (`GF100`/`GF104`/`GF106`) features two warp schedulers and two instruction dispatch units per SM capable of co-issuing independent instruction pairs (e.g. ALU + TEX/MEM or INT + FP32 FMA). Enhance `nv50_ir` scheduling to bundle dual-issue pairs.
+- [ ] **Register Spilling Mitigation & Graph-Coloring Constant Rematerialization**
+  - File: `src/gallium/drivers/nouveau/codegen/nv50_ir_ra.cpp`
+  - Rematerialize uniform expressions, constants, and address calculations during register allocation instead of spilling to slow local VRAM.
+- [ ] **Lossless Z-Cull & Color Tile Compression Integration**
+  - Files: `src/gallium/drivers/nouveau/nv50/nv50_surface.c`, `nvc0/`
+  - Bind kernel `TAGRAM` buffer allocations (paired with `nouveau-dkms`) to depth/stencil and color targets to activate hardware Z-Cull and tile compression, reducing rasterization memory bus pressure.
+
+## 6. Compute, OpenGL 4.x Stability & Desktop Compatibility (`nvc0` / Wayland EGL)
+
+- [ ] **Fermi SSBO 64-Bit Address Bounds Clamping (`TargetNVC0`)**
+  - File: `src/gallium/drivers/nouveau/codegen/nv50_ir_target_nvc0.cpp` (`emitSSBOOp`)
+  - Clamp effective SSBO offsets via `MIN(offset, buffer_size - access_size)` before 64-bit pointer construction so out-of-range compute/fragment reads/writes do not trigger `GPC/TPC/MP trap: warp [OOR_ADDR]` and `PT_NOT_PRESENT` faults (observed in Blender 4.x).
+- [ ] **Color Target 256-Byte (`0x100`) Base Alignment Enforcement**
+  - File: `src/gallium/drivers/nouveau/nvc0/nvc0_surface.c`
+  - Enforce `ALIGN(offset, 256)` on render target base addresses sent to `NV9097_SET_COLOR_TARGET_B` (`0x0804`), complementing `nouveau-dkms`'s BO/GEM alignment to prevent `PGRAPH DATA_ERROR [INVALID_VALUE]` on suballocated buffers.
+- [ ] **Wayland EGL Visual Format Matching & Graceful Fallback**
+  - File: `src/egl/drivers/dri2/platform_wayland.c`
+  - Filter out unsupported 10-bit (`RGB10_A2`) and float surface formats on pre-Kepler/Fermi hardware so Wayland clients (e.g. Blender) match 8-bit visuals cleanly instead of hitting `EGL_BAD_MATCH`.
+- [ ] **Nouveau Fermi `drirc` (`mesa_glthread=false`)**
+  - File: `/usr/share/drirc.d/10-nouveau-fermi.conf` (or `00-mesa-defaults.conf`)
+  - Disable `mesa_glthread` by default on Nouveau Fermi to prevent asynchronous pushbuf reordering races.
+- [ ] **Missing Native OpenGL 4.5 / 4.6 Extensions on `nvc0`**
+  - `GL_ARB_indirect_parameters` (`NV9097_SET_MME_SHADOW` + indirect draw counter reads on `0x9097`)
+  - `GL_ARB_pipeline_statistics_query` & `GL_ARB_transform_feedback_overflow_query` (`0x9097` method `0x1b00` `QUERY_COUNTER`)
+  - `GL_ARB_gl_spirv` & `GL_ARB_spirv_extensions` (wire `nir_spirv` into `nvc0_program.c` -> `TargetNVC0`)
+- [ ] **Mesa Rusticl: Raise `CL_DEVICE_MAX_MEM_ALLOC_SIZE`**
+  - Location: `src/gallium/drivers/nouveau/nvc0/`
+  - Raise single-buffer allocation cap from 25% of VRAM (`768 MiB`) to ~90% (`~2.75 GiB`) so `llama.cpp` and `CLBlast` can load quantized SLM weights into contiguous buffers.
+
+## 7. Hardware Video Encoding & Vulkan (`VA-API Encode` / `nvk-fermi`)
+
+- [ ] **Hybrid Compute-Shader VA-API H.264 Encoder (`VAEntrypointEncSlice`)**
+  - Files: `src/gallium/frontends/va/`, `src/gallium/drivers/nouveau/nvc0/`
+  - Implement a 4-stage compute-backed `pipe_video_codec` (`RGB -> NV12`, parallel SM `SAD/SATD` motion estimation, integer DCT/quantization, host CAVLC/CABAC packing) for OBS Studio (`obs-vaapi`), FFmpeg (`h264_vaapi`), PipeWire, and GStreamer.
+- [ ] **Kepler (`GK104+`) & Maxwell (`GM107+`) Fixed-Function `MSENC` (`0x1c8000`) VA-API Encode**
+  - Files: `src/gallium/drivers/nouveau/nve4/`, `nv50/`
+  - Expose hardware `NVENC`/`MSENC` H.264 encoding via Gallium VA-API.
+- [ ] **Fermi Vulkan 1.0 / 1.1 (`nvk-fermi` Bound-Descriptor Lowering) & Zink**
+  - Location: `src/nouveau/vulkan/`
+  - Prototype `hasvk`-style bound-descriptor lowering (`128 TIC` / `32 TSC` slots per stage) pairing `NVK`'s command buffer/sync runtime with `NIR -> nv50_ir` (`TargetNVC0`), enabling Zink OpenGL 4.6 on top of `nvk-fermi`.
