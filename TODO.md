@@ -31,27 +31,18 @@ Reference: https://github.com/dolphin-emu/dolphin/pull/14993 (closed because roo
     - `nvc0_state_validate.c` / `nvc0_shader_state.c` (`NVC0_3D_DEPTH_RANGE` / `CLIP_CONTROL` / `VIEWPORT_TRANSFORM` / `FRAG_COORD` state dirtying across draws).
   - [ ] Build a minimal standalone Mesa reproducer once the failing NIR/SASS pattern is identified, implement the fix in `nvc0` / `nv50_ir`, and verify with `FastDepthCalc = True` on cold shader cache.
 
-## 3. Chromium / VA-API DMABUF Export Experiments (Test on Separate Git Branches)
+## 3. Chromium / VA-API DMABUF Export Experiments (Completed — Branch B Shipped in `26.3.1-2`)
 
-Currently, `mpv` and `ffmpeg` VA-API hardware decoding work cleanly with accurate colours and zero `nouveau` faults, while Chromium (`VaapiVideoDecoder`) falls back to CPU decode because `vlVaExportSurfaceHandle()` rejects interlaced `nouveau_vp3` `NV12` surfaces (`VA_STATUS_ERROR_INVALID_SURFACE`).
+Both approaches were implemented and verified on dedicated git branches in `src-dev/`:
 
-Both approaches below will be evaluated on dedicated git branches:
+### Branch A: VPP Copy (`vaapi-export-vpp-nv12`) — Verified & Kept for Reference (`f8f2d2d6`)
+- [x] Implemented lazy progressive `PIPE_FORMAT_NV12` `export_buffer` + `vlVaUpdateExportBuffer()` (`vlVaPostProc` weave) + `nvc0` YUV DMABUF modifier support.
+- [x] Verified in `mpv`, `test_va_export`, `test_gbm_nv12`, and YouTube H.264 in `google-chrome-stable` with zero kernel errors.
 
-### Branch A: VPP Copy (`vaapi-export-vpp-nv12`) — Recommended Baseline
-- [ ] Add a lazily allocated, cached progressive `PIPE_FORMAT_NV12` `vl_video_buffer` (`export_buffer`) to `vlVaSurface` (`src/gallium/frontends/va/`).
-- [ ] In `vlVaExportSurfaceHandle()`, when `surf->buffer->interlaced` is true:
-  - Allocate `surf->export_buffer` via `vl_video_buffer_create()` with `interlaced = false` if not already allocated.
-  - Run `vlVaPostProc()` (`vl_compositor_yuv_deint_full` with `VL_COMPOSITOR_WEAVE`, 2 GPU draws: `Y` + `UV`) from `surf->buffer` to `surf->export_buffer` when dirty.
-  - Export `surf->export_buffer`'s progressive `DRM_FORMAT_NV12` DMABUF.
-- [ ] In `vlVaEndPicture()`, if `surf->export_buffer` already exists (for callers like Chromium that cache an exported DMABUF handle across frames for the same `VASurfaceID`), trigger the 2-draw weave update immediately; otherwise mark `surf->export_dirty = true`.
-- [ ] Free `surf->export_buffer` in `vlVaDestroySurface()`.
-- [ ] Test with `google-chrome-stable` (`chrome://media-internals` -> `VaapiVideoDecoder` on H.264 / `intro_transition.mp4` and H.264 YouTube) and `mpv --hwdec=auto` (verify direct `vaapi[nv12]` without `scale_vaapi=format=yuv420p`), plus `journalctl -k`.
-- Trade-offs: ~15–50 MB extra VRAM for exported decode surfaces, ~1–3% DDR3 bandwidth (~185–370 MB/s at 1080p 30–60 fps), ~0.5–1.5 ms/frame on `PGRAPH`; zero Falcon microcode risk.
-
-### Branch B: Direct Progressive `NV12` from `MSPPP` (`vaapi-msppp-progressive-nv12`) — Experimental
-- [ ] Investigate whether VP4 `MSPPP` (`0x90b3`) microcode (`src/gallium/drivers/nouveau/nvc0/nvc0_video_ppp.c`, methods `0x700` / `0x738`) supports writing a non-field-separated progressive `NV12` surface directly instead of splitting top/bottom fields across `mt->base.address` and `mt->base.address + mt->total_size/2`.
-- [ ] Verify whether `MSPPP`'s tiled output (`tile_mode = 0x10`, `memtype = 0xfe`, macroblock stride) can be imported directly by EGL / `libplacebo` / Chromium via `DRM_FORMAT_NV12` DMABUF modifiers without scanout/modifier mismatches.
-- [ ] Compare stability, VRAM usage, GPU/CPU load, and colour/field correctness against Branch A (note high risk of `MSPPP` Falcon/PFIFO hangs if probing undocumented registers).
+### Branch B: Direct Progressive `NV12` from `MSPPP` (`vaapi-msppp-progressive-nv12`) — Shipped in `26.3.1-2` (`a47e2a6b`)
+- [x] Disassembled `nvc3_fuc086` (`MSPPP`) and confirmed bit `0x10` of `low700` controls field-separated output (`0x718`/`0x71c`, `0x720`/`0x724`).
+- [x] Cleared `0x10` when `!target->base.interlaced`, enabled `PIPE_VIDEO_CAP_SUPPORTS_PROGRESSIVE` on `nvc0`, allocated progressive `PIPE_TEXTURE_2D` `NV12` surfaces, and added `util_format_is_yuv()` `tile_flags = 0xfe` in `nvc0_choose_tiled_storage_type()`.
+- [x] Verified byte-for-byte identical `YUV420p` output at `64x64`, `640x360`, `854x480`, `1280x720`, `1920x1080`, and `720x480` interlaced H.264, `52.69 dB` PSNR on `1280x720` MPEG-2, smooth YouTube H.264 playback in Chrome, and 15x rapid teardown stress testing with zero kernel errors.
 
 ## 4. Additional Verification & Packaging
 

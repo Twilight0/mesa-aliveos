@@ -4,6 +4,19 @@ All notable changes to **mesa-aliveos** will be documented in this file.
 
 ---
 
+## [26.3.1-2] - 2026-11-22
+
+### Chromium VA-API & Direct Progressive `NV12` Output (`0006`)
+- **Direct Progressive `NV12` from VP4 `MSPPP` (`nouveau_vp3_video.c`, `nvc0_video_ppp.c`)**:
+  - Enabled `PIPE_VIDEO_CAP_SUPPORTS_PROGRESSIVE` on `nvc0` (`chipset >= 0xc0`) and allocated progressive `PIPE_TEXTURE_2D` (`array_size = 1`, `PIPE_BIND_SHARED`) `NV12` surfaces when `!templat->interlaced`.
+  - Cleared `MSPPP` field-split bit `0x10` in `low700` (`nvc0_decoder_setup_ppp()`) for progressive targets so `MSPPP` writes full progressive `NV12` planes directly with zero VPP copy, zero extra VRAM, and zero extra `PGRAPH` draws.
+  - Verified byte-for-byte identical `YUV420p` output against software decode at `64x64`, `640x360`, `854x480`, `1280x720`, `1920x1080`, and `720x480` interlaced H.264, plus `52.69 dB` PSNR on `1280x720` MPEG-2 and 15x rapid teardown stress testing with zero kernel errors.
+- **GBM / DMABUF `NV12` Modifier Support (`nvc0_miptree.c`)**:
+  - Returned `tile_flags = 0xfe` for `util_format_is_yuv(format)` in `nvc0_choose_tiled_storage_type()` so `nvc0_is_dmabuf_modifier_supported()` and `gbm_bo_import()` accept block-linear `DRM_FORMAT_NV12` DMABUFs.
+  - Enables smooth hardware-accelerated `VaapiVideoDecoder` playback in Chromium / Google Chrome (YouTube H.264) and direct `vaapi[nv12]` EGL DMABUF interop in `mpv`.
+
+---
+
 ## [26.3.1-1] - 2026-11-22
 
 ### Nouveau VA-API / VP4 Hardware Decode & Teardown Stability

@@ -4,10 +4,12 @@ AliveOS patched Mesa package built on top of official Mesa releases using a clea
 
 Provides universal x86_64 Gallium OpenGL and VA-API hardware video acceleration drivers while coexisting cleanly with Arch Linux's standalone `vulkan-radeon`, `vulkan-intel`, `vulkan-nouveau`, `vulkan-swrast`, and `opencl-mesa` packages.
 
-## Key Fixes & Improvements (26.3.1-1)
+## Key Fixes & Improvements (26.3.1-2)
 
 - **Arch Linux `extra/mesa 1:26.3.1-2` Base Patches (`0001`–`0002`)**:
-  - Includes `0001-panfrost-Fix-types-of-panfrost_vdrm-functions.patch` and `0002-Revert-mesa-don-t-advertise-APIs-that-are-not-built.patch` (Mesa #16934 fix for `-Dgles1=disabled` builds) as the Arch Linux baseline beneath the AliveOS patches (`0003`–`0005`).
+  - Includes `0001-panfrost-Fix-types-of-panfrost_vdrm-functions.patch` and `0002-Revert-mesa-don-t-advertise-APIs-that-are-not-built.patch` (Mesa #16934 fix for `-Dgles1=disabled` builds) as the Arch Linux baseline beneath the AliveOS patches (`0003`–`0006`).
+- **Chromium `VaapiVideoDecoder` & Direct Progressive `NV12` (`0006`)**:
+  - Decodes progressive `NV12` directly from VP4 `MSPPP` (`low700 &= ~0x10`) with zero extra VRAM or VPP copy, and enables `nvc0` block-linear `DRM_FORMAT_NV12` DMABUF modifier support for `gbm_bo_import()` in Chromium and `mpv`.
 - **Nouveau Fermi / VP4 (`NVC3` / `GF106M`) VA-API Stability**:
   - Fixed `nouveau_vp3_decoder_destroy()`, `firmware_present()`, and `nvc0_screen_destroy()` channel/subchannel teardown ordering to eliminate PFIFO `CTXSW_TIMEOUT` hangs.
   - Implemented `fence_wait` / `destroy_fence` and `out_fence` export on `nouveau_vp3` decoder channels and isolated decoder pushbuf callbacks from the 3D screen fence sequence.
