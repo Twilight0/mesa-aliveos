@@ -7,10 +7,17 @@ on:
     tags:
       - 'v*'
   pull_request:
+  schedule:
+    # Run Saturday 22:00 UTC (2 hours before aliveos-repo's Sunday 00:00 UTC build)
+    - cron: '0 22 * * 6'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: mesa-aliveos-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-arch:
@@ -19,6 +26,11 @@ jobs:
     container:
       image: archlinux:base-devel
     timeout-minutes: 90
+    outputs:
+      updated: ${{ steps.upstream.outputs.updated }}
+      should_build: ${{ steps.upstream.outputs.should_build }}
+      pkgver: ${{ steps.upstream.outputs.pkgver }}
+      pkgrel: ${{ steps.upstream.outputs.pkgrel }}
 
     steps:
       - name: Checkout repository
@@ -39,17 +51,78 @@ jobs:
           cat /etc/pacman.d/mirrorlist >> /tmp/mirrorlist.new 2>/dev/null || true
           mv /tmp/mirrorlist.new /etc/pacman.d/mirrorlist
 
-          pacman -Syu --noconfirm git
+          pacman -Syu --noconfirm git curl python github-cli
           useradd -m -s /bin/bash builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
           chmod 440 /etc/sudoers.d/builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
+      - name: Check Upstream Mesa Release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          current_ver="$(grep -E '^pkgver=' PKGBUILD | cut -d= -f2 | tr -d "'\"")"
+          current_rel="$(grep -E '^pkgrel=' PKGBUILD | cut -d= -f2 | tr -d "'\"")"
+          updated="false"
+          should_build="true"
+
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            latest_ver="$(curl -fsSL https://archive.mesa3d.org/ \
+              | grep -oE 'mesa-[0-9]+\.[0-9]+\.[0-9]+\.tar\.xz' \
+              | sed -E 's/^mesa-(.*)\.tar\.xz$/\1/' \
+              | sort -V \
+              | tail -n 1)"
+
+            if [[ -n "$latest_ver" ]] && [[ "$(vercmp "$latest_ver" "$current_ver")" -gt 0 ]]; then
+              echo "New upstream Mesa version found: $current_ver -> $latest_ver"
+              tar_url="https://archive.mesa3d.org/mesa-${latest_ver}.tar.xz"
+              curl -fsSL "$tar_url" -o "/tmp/mesa-${latest_ver}.tar.xz"
+              new_sha="$(sha256sum "/tmp/mesa-${latest_ver}.tar.xz" | awk '{print $1}')"
+              rm -f "/tmp/mesa-${latest_ver}.tar.xz"
+
+              python3 - "$latest_ver" "$new_sha" <<'PYEOF'
+          import re, sys
+          ver, sha = sys.argv[1], sys.argv[2]
+          text = open("PKGBUILD", "r", encoding="utf-8").read()
+          text = re.sub(r"^pkgver=.*$", f"pkgver={ver}", text, count=1, flags=re.M)
+          text = re.sub(r"^pkgrel=.*$", "pkgrel=1", text, count=1, flags=re.M)
+          text = re.sub(
+              r"(sha256sums=\(\s*\n\s*')([0-9a-f]{64})(')",
+              rf"\g<1>{sha}\g<3>",
+              text,
+              count=1,
+          )
+          open("PKGBUILD", "w", encoding="utf-8").write(text)
+          PYEOF
+
+              sudo -u builder bash -c 'makepkg --printsrcinfo > .SRCINFO'
+              current_ver="$latest_ver"
+              current_rel="1"
+              updated="true"
+            else
+              echo "Upstream Mesa is up to date ($current_ver)."
+              if [[ "${{ github.event_name }}" == "schedule" ]]; then
+                if gh release view "v${current_ver}-${current_rel}" >/dev/null 2>&1; then
+                  echo "Release v${current_ver}-${current_rel} already exists; skipping scheduled rebuild."
+                  should_build="false"
+                fi
+              fi
+            fi
+          fi
+
+          echo "updated=${updated}" >> "$GITHUB_OUTPUT"
+          echo "should_build=${should_build}" >> "$GITHUB_OUTPUT"
+          echo "pkgver=${current_ver}" >> "$GITHUB_OUTPUT"
+          echo "pkgrel=${current_rel}" >> "$GITHUB_OUTPUT"
+
       - name: Build Package with makepkg
+        if: steps.upstream.outputs.should_build == 'true'
         run: |
           sudo -u builder env MAKEFLAGS="-j$(nproc)" makepkg --syncdeps --noconfirm --nocheck --clean
 
       - name: Verify Package Contents
+        if: steps.upstream.outputs.should_build == 'true'
         run: |
           shopt -s nullglob
           pkgs=(mesa-aliveos-*.pkg.tar.zst)
@@ -94,16 +167,24 @@ jobs:
           done
 
       - name: Upload Package Artifact
+        if: steps.upstream.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: mesa-aliveos-arch-pkg
-          path: mesa-aliveos-*.pkg.tar.zst
+          path: |
+            mesa-aliveos-*.pkg.tar.zst
+            PKGBUILD
+            .SRCINFO
 
   release:
     name: Publish GitHub Release
     needs: [build-arch]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: >-
+      needs.build-arch.outputs.should_build == 'true' &&
+      (startsWith(github.ref, 'refs/tags/v') ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule')
 
     steps:
       - name: Checkout repository
@@ -114,6 +195,18 @@ jobs:
         with:
           name: mesa-aliveos-arch-pkg
           path: release-assets
+
+      - name: Commit Updated PKGBUILD & .SRCINFO
+        if: needs.build-arch.outputs.updated == 'true'
+        run: |
+          cp release-assets/PKGBUILD release-assets/.SRCINFO .
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet PKGBUILD .SRCINFO; then
+            git add PKGBUILD .SRCINFO
+            git commit -m "chore: bump mesa-aliveos to ${{ needs.build-arch.outputs.pkgver }}-${{ needs.build-arch.outputs.pkgrel }}"
+            git push origin HEAD:main
+          fi
 
       - name: Generate Checksums & Release
         env:
@@ -127,14 +220,13 @@ jobs:
           if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF_NAME}"
           else
-            pkgver="$(grep -E '^pkgver=' PKGBUILD | cut -d= -f2 | tr -d "'\"")"
-            pkgrel="$(grep -E '^pkgrel=' PKGBUILD | cut -d= -f2 | tr -d "'\"")"
-            TAG="v${pkgver}-${pkgrel}"
+            TAG="v${{ needs.build-arch.outputs.pkgver }}-${{ needs.build-arch.outputs.pkgrel }}"
           fi
 
           if ! gh release view "$TAG" >/dev/null 2>&1; then
+            TARGET_SHA="$(git rev-parse HEAD)"
             gh release create "$TAG" \
-              --target "${{ github.sha }}" \
+              --target "$TARGET_SHA" \
               --title "mesa-aliveos $TAG" \
               --notes "Prebuilt Arch Linux / AliveOS package for mesa-aliveos $TAG. See CHANGELOG.md for details." \
               --latest
