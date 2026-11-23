@@ -68,14 +68,12 @@ jobs:
           should_build="true"
 
           if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            latest_ver="$(curl -fsSL https://archive.mesa3d.org/ \
-              | grep -oE 'mesa-[0-9]+\.[0-9]+\.[0-9]+\.tar\.xz' \
-              | sed -E 's/^mesa-(.*)\.tar\.xz$/\1/' \
-              | sort -V \
-              | tail -n 1)"
+            latest_ver="$(curl -fsSL https://archlinux.org/packages/extra/x86_64/mesa/json/ \
+              | python3 -c 'import sys, json; print(json.load(sys.stdin)["pkgver"])' 2>/dev/null \
+              || pacman -Si extra/mesa | awk '/^Version/{print $3}' | sed -E 's/^[0-9]+://; s/-[^-]+$//')"
 
             if [[ -n "$latest_ver" ]] && [[ "$(vercmp "$latest_ver" "$current_ver")" -gt 0 ]]; then
-              echo "New upstream Mesa version found: $current_ver -> $latest_ver"
+              echo "New Arch extra/mesa version found: $current_ver -> $latest_ver"
               tar_url="https://archive.mesa3d.org/mesa-${latest_ver}.tar.xz"
               curl -fsSL "$tar_url" -o "/tmp/mesa-${latest_ver}.tar.xz"
               new_sha="$(sha256sum "/tmp/mesa-${latest_ver}.tar.xz" | awk '{print $1}')"
