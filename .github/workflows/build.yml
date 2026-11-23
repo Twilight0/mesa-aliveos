@@ -167,6 +167,7 @@ jobs:
       - name: Smoke Test Built Package
         if: steps.upstream.outputs.should_build == 'true'
         run: |
+          pacman -Rdd --noconfirm mesa 2>/dev/null || true
           pacman -U --noconfirm mesa-aliveos-*.pkg.tar.zst
           pacman -S --noconfirm mesa-utils xorg-server-xvfb
 
