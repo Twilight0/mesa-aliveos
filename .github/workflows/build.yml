@@ -164,6 +164,25 @@ jobs:
             fi
           done
 
+      - name: Smoke Test Built Package
+        if: steps.upstream.outputs.should_build == 'true'
+        run: |
+          pacman -U --noconfirm mesa-aliveos-*.pkg.tar.zst
+          pacman -S --noconfirm mesa-utils xorg-server-xvfb
+
+          echo "Checking dynamic linkage and symbol resolution..."
+          for so in /usr/lib/libEGL_mesa.so.0 /usr/lib/libGLX_mesa.so.0 /usr/lib/libgbm.so.1 /usr/lib/libgallium-*.so /usr/lib/dri/nouveau_dri.so /usr/lib/dri/nouveau_drv_video.so /usr/lib/dri/radeonsi_dri.so /usr/lib/dri/iris_dri.so /usr/lib/dri/swrast_dri.so; do
+            if ldd -r "$so" 2>&1 | grep -E "not found|undefined symbol"; then
+              echo "Dynamic link error in $so" >&2
+              exit 1
+            fi
+          done
+
+          echo "Running GLX / EGL / GLVND runtime smoke tests (llvmpipe)..."
+          xvfb-run -a -s "-screen 0 1280x720x24" glxinfo -B
+          xvfb-run -a -s "-screen 0 1280x720x24" eglinfo -B | head -n 60
+          eglinfo -p surfaceless -B | head -n 40
+
       - name: Upload Package Artifact
         if: steps.upstream.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
