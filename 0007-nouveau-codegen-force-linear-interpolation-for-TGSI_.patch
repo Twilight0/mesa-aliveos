@@ -1,0 +1,50 @@
+From f3c91d1a18c1fd9b39c013408082a33fca751135 Mon Sep 17 00:00:00 2001
+From: Twilight0 <twilight0@vivaldi.net>
+Date: Tue, 24 Nov 2026 19:37:11 +0200
+Subject: [PATCH] nouveau/codegen: force linear interpolation for
+ TGSI_SEMANTIC_POSITION
+
+In linked fragment shaders, NIR may mark gl_FragCoord (VARYING_SLOT_POS)
+with INTERP_MODE_SMOOTH instead of INTERP_MODE_NONE. Converter::setInterpolate()
+previously only set var->linear = 1 for TGSI_SEMANTIC_POSITION under
+INTERP_MODE_NONE, causing OP_PINTERP to be emitted on SV_POSITION.z (a[0x78])
+and multiplying gl_FragCoord.z and .w by w_clip.
+
+Always treat TGSI_SEMANTIC_POSITION as screen-space linear in
+Converter::setInterpolate() so OP_LINTERP is used.
+
+Generated-by: LLM
+---
+ src/gallium/drivers/nouveau/codegen/nv50_ir_from_nir.cpp | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/gallium/drivers/nouveau/codegen/nv50_ir_from_nir.cpp b/src/gallium/drivers/nouveau/codegen/nv50_ir_from_nir.cpp
+index f74f0cbf..e4388a6e 100644
+--- a/src/gallium/drivers/nouveau/codegen/nv50_ir_from_nir.cpp
++++ b/src/gallium/drivers/nouveau/codegen/nv50_ir_from_nir.cpp
+@@ -867,6 +867,13 @@ Converter::setInterpolate(nv50_ir_varying *var,
+                           bool centroid,
+                           unsigned semantic)
+ {
++   if (semantic == TGSI_SEMANTIC_POSITION) {
++      /* gl_FragCoord is always screen-space linear even if NIR marks it smooth. */
++      var->linear = 1;
++      var->centroid = centroid;
++      return;
++   }
++
+    switch (mode) {
+    case INTERP_MODE_FLAT:
+       var->flat = 1;
+@@ -874,8 +881,6 @@ Converter::setInterpolate(nv50_ir_varying *var,
+    case INTERP_MODE_NONE:
+       if (semantic == TGSI_SEMANTIC_COLOR)
+          var->sc = 1;
+-      else if (semantic == TGSI_SEMANTIC_POSITION)
+-         var->linear = 1;
+       break;
+    case INTERP_MODE_NOPERSPECTIVE:
+       var->linear = 1;
+-- 
+2.56.1
+

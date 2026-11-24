@@ -4,6 +4,15 @@ All notable changes to **mesa-aliveos** will be documented in this file.
 
 ---
 
+## [26.3.1-3] - 2026-11-24
+
+### Nouveau Codegen `gl_FragCoord` Linear Interpolation Fix (`0007`)
+- **Force Linear Interpolation for `TGSI_SEMANTIC_POSITION` (`nv50_ir_from_nir.cpp`)**:
+  - Updated `Converter::setInterpolate()` to always set `var->linear = 1` for `TGSI_SEMANTIC_POSITION` (`VARYING_SLOT_POS` / `gl_FragCoord`), even when NIR marks it `INTERP_MODE_SMOOTH` in linked fragment shaders.
+  - Prevents `OP_PINTERP` (`pinterp mul`) from multiplying screen-space `SV_POSITION.z` (`a[0x78]`) and `SV_POSITION.w` (`a[0x7c]`) by `w_clip`, fixing `gl_FragCoord.z` corruption in Dolphin (`FastDepthCalc`, e.g., *Metal Gear Solid: The Twin Snakes* cargo dock perspective fog).
+
+---
+
 ## [26.3.1-2] - 2026-11-22
 
 ### Chromium VA-API & Direct Progressive `NV12` Output (`0006`)
