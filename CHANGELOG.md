@@ -4,6 +4,15 @@ All notable changes to **mesa-aliveos** will be documented in this file.
 
 ---
 
+## [26.3.1-4] - 2026-11-24
+
+### Nouveau `nvc0` Experimental Draw Batching (`0008`)
+- **Opt-In Draw Batching via `NOUVEAU_BATCH_DRAWS=1` (`nvc0_vbo.c`)**:
+  - Gated the per-draw `PUSH_KICK(push)` in `nvc0_draw_vbo()` behind `NOUVEAU_BATCH_DRAWS` (default `false` to preserve upstream compatibility).
+  - When `NOUVEAU_BATCH_DRAWS=1` is set, consecutive draw calls batch into fewer `DRM_NOUVEAU_GEM_PUSHBUF` kernel submissions until pushbuf space runs low or an explicit flush/readback/swap occurs (more than doubling MGS: The Twin Snakes FPS from `~10.9 FPS` to `~25.3 FPS` on `NVC3`).
+
+---
+
 ## [26.3.1-3] - 2026-11-24
 
 ### Nouveau Codegen `gl_FragCoord` Linear Interpolation Fix (`0007`)

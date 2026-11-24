@@ -1,0 +1,40 @@
+From 55ecbdea9086d3bdd263c367987454b4f36d80bf Mon Sep 17 00:00:00 2001
+From: Twilight0 <twilight0@vivaldi.net>
+Date: Tue, 24 Nov 2026 20:29:01 +0200
+Subject: [PATCH] nouveau/nvc0: gate draw batching behind NOUVEAU_BATCH_DRAWS
+
+nvc0_draw_vbo() normally calls PUSH_KICK(push) at the end of every draw,
+issuing a DRM_NOUVEAU_GEM_PUSHBUF kernel ioctl per draw call. In
+draw-heavy workloads such as Dolphin (MGS: The Twin Snakes), deferring
+PUSH_KICK(push) lets consecutive draws batch into fewer submissions and
+more than doubles FPS (~10.9 -> ~25.3 FPS on NVC3).
+
+Because skipping per-draw kicks globally has not been verified across a
+full piglit/dEQP run, keep upstream behavior by default and enable
+batching when NOUVEAU_BATCH_DRAWS=1.
+
+Generated-by: LLM
+---
+ src/gallium/drivers/nouveau/nvc0/nvc0_vbo.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/drivers/nouveau/nvc0/nvc0_vbo.c b/src/gallium/drivers/nouveau/nvc0/nvc0_vbo.c
+index 7b848160..306e39ef 100644
+--- a/src/gallium/drivers/nouveau/nvc0/nvc0_vbo.c
++++ b/src/gallium/drivers/nouveau/nvc0/nvc0_vbo.c
+@@ -1167,7 +1167,11 @@ nvc0_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+          drawid++;
+    }
+ 
+-   PUSH_KICK(push);
++   static int batch_draws = -1;
++   if (unlikely(batch_draws < 0))
++      batch_draws = debug_get_bool_option("NOUVEAU_BATCH_DRAWS", false);
++   if (!batch_draws)
++      PUSH_KICK(push);
+    simple_mtx_unlock(&nvc0->screen->state_lock);
+ 
+    nvc0->base.kick_notify = nvc0_default_kick_notify;
+-- 
+2.56.1
+

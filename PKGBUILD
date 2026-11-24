@@ -2,7 +2,7 @@
 
 pkgname=mesa-aliveos
 pkgver=26.3.1
-pkgrel=3
+pkgrel=4
 pkgdesc="Open-source OpenGL and VA-API drivers (AliveOS patched Mesa)"
 url="https://github.com/Twilight0/mesa-aliveos"
 arch=('x86_64')
@@ -75,6 +75,7 @@ source=(
   "0005-nvc0-increase-ra-spill-retries-and-glsl-460.patch"
   "0006-nouveau-nvc0-progressive-nv12-msppp-and-yuv-modifiers.patch"
   "0007-nouveau-codegen-force-linear-interpolation-for-TGSI_.patch"
+  "0008-nouveau-nvc0-gate-draw-batching-behind-NOUVEAU_BATCH.patch"
 )
 sha256sums=(
   '4e4e438eac7b840a9383988cbb7c08dad8041da544b9319fc26d319fa7348961'
@@ -85,6 +86,7 @@ sha256sums=(
   'd084d055d5270c843262314f4322ee103f5cd6a47a733c33d164692e34a08581'
   'cc2f7bc15f798d5ed1aefb374ed89dae6799dbfbbe6622b9d80495f560c4bad9'
   '5bf450610a2cd0db147cf94542d117274652d612c0738c933d94c7a4d63df479'
+  'c9a5679c385535db28a1c914d4d5bff1f143e1b5096f214e54a0e176f447ee80'
 )
 
 prepare() {

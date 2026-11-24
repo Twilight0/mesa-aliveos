@@ -4,9 +4,9 @@ AliveOS patched Mesa package built on top of official Mesa releases using a clea
 
 Provides universal x86_64 Gallium OpenGL and VA-API hardware video acceleration drivers while coexisting cleanly with Arch Linux's standalone `vulkan-radeon`, `vulkan-intel`, `vulkan-nouveau`, `vulkan-swrast`, and `opencl-mesa` packages.
 
-## Key Fixes & Improvements (26.3.1-2)
+## Key Fixes & Improvements (26.3.1-4)
 
-- **Arch Linux `extra/mesa 1:26.3.1-2` Base Patches (`0001`–`0002`)**:
+- **Arch Linux `extra/mesa 1:26.3.1-3` Base Patches (`0001`–`0002`)**:
   - Includes `0001-panfrost-Fix-types-of-panfrost_vdrm-functions.patch` and `0002-Revert-mesa-don-t-advertise-APIs-that-are-not-built.patch` (Mesa #16934 fix for `-Dgles1=disabled` builds) as the Arch Linux baseline beneath the AliveOS patches (`0003`–`0006`).
 - **Chromium `VaapiVideoDecoder` & Direct Progressive `NV12` (`0006`)**:
   - Decodes progressive `NV12` directly from VP4 `MSPPP` (`low700 &= ~0x10`) with zero extra VRAM or VPP copy, and enables `nvc0` block-linear `DRM_FORMAT_NV12` DMABUF modifier support for `gbm_bo_import()` in Chromium and `mpv`.
@@ -16,7 +16,9 @@ Provides universal x86_64 Gallium OpenGL and VA-API hardware video acceleration 
   - Fixed VA-API interlaced surface sizing, image upload clamping (`GF100_M2MF` `XY_OUT_OF_BOUNDS`), and H.264 `max_references` decoder recreation.
 - **VL Compositor `yuv420p` Chroma Output**:
   - Fixed plane-order indexing and `VL_COMPOSITOR_PLANE_V` sampler binding on the graphics shader deinterlace path so VA-API VPP `yuv420p` outputs accurate U/V planes.
-- **Nouveau `nvc0` Compiler & OpenGL 4.6**:
+- **Nouveau `nvc0` Compiler, `gl_FragCoord.z`, & OpenGL 4.6 (`0005`, `0007`, `0008`)**:
+  - Forced linear interpolation for `TGSI_SEMANTIC_POSITION` (`VARYING_SLOT_POS` / `gl_FragCoord`) in `nv50_ir_from_nir.cpp` even when NIR marks it `INTERP_MODE_SMOOTH`, fixing `gl_FragCoord.z` corruption in Dolphin (`FastDepthCalc`, e.g., *Metal Gear Solid: The Twin Snakes* cargo dock perspective fog).
+  - Added experimental opt-in draw batching (`NOUVEAU_BATCH_DRAWS=1`) in `nvc0_vbo.c` to skip per-draw `PUSH_KICK(push)` and batch consecutive draws into fewer kernel pushbuf submissions (default off for compatibility; `NOUVEAU_BATCH_DRAWS=1 dolphin-emu` more than doubles MGS:TS FPS on `NVC3`).
   - Increased register allocator spill retry limit from `3` to `8` for high-register-pressure shaders.
   - Enabled GLSL `460` (`OpenGL 4.6`) feature level on `nvc0`.
 - **Full Codec & x86_64 Gallium Support**:
